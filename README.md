@@ -10,24 +10,38 @@ This repository is the Kiveiv development workspace. Directory layout follows th
 
 ## 启动流程
 
-### 前端
-1. 进入前端目录：
-   `cd frontend/app`
-2. 安装依赖：
-   `npm install`
-3. 启动开发服务器：
-   `npm run dev`
+按下面顺序测就行（注意：真正的 git 仓库在子目录 `-Users-liuyunlin-Downloads-kiveiv-pre_yunlin_design-` 里）。
 
-默认本地地址由 Vite 输出，通常为 `http://localhost:5173`。
+1) 确认是不是这个仓库
+```bash
+cd /Users/liuyunlin/ComateProjects/comate-zulu-demo-1770689928256/-Users-liuyunlin-Downloads-kiveiv-pre_yunlin_design-
+git remote -v
+git branch --show-current
+git log -1 --oneline
+```
+- `remote` 里应该能看到 `origin https://github.com/liuyunlin/-Users-liuyunlin-Downloads-kiveiv-pre_yunlin_design-.git`
+- `git log -1` 应该是 `883971c ...`（你刚 push 的那笔）
 
-## 同时跑两套前端（主分支 vs feature 对照）
+2) 跑前端（Vite）
+```bash
+cd frontend/app
+npm install
+npm run dev
+```
+- 默认会尝试 `5173`；如果 `5173` 被占用就会自动跳到 `5174`（你之前看到的情况就是这样）
 
-前提：你需要两份代码目录（例如两个 clone / 两个 worktree / 或者一个是主分支目录、一个是 feature 分支目录），并且两边都安装过依赖。
+想强制用 `5173`（被占用就直接报错）：
+```bash
+npm run dev -- --port 5173 --strictPort
+```
 
-在本仓库目录下运行：
+3) 确认 localhost 跑的是“对的代码”
+```bash
+cd /Users/liuyunlin/ComateProjects/comate-zulu-demo-1770689928256/-Users-liuyunlin-Downloads-kiveiv-pre_yunlin_design-
+git rev-parse HEAD
+```
+然后对照：
+- 终端里 `npm run dev` 打印出来的 Local URL（`http://localhost:5173/` 或 `http://localhost:5174/`）打开页面
+- 再用 `git rev-parse HEAD` 确认当前工作区就是你 push 的那次 commit（应该是 `883971c...` 开头）
 
-`bash scripts/run-two-frontends.sh <main_dir> <feature_dir> 5173 5174`
-
-示例（main 用当前目录，feature 在隔壁目录）：
-
-`bash scripts/run-two-frontends.sh . ../kiveiv-feature 5173 5174`
+如果你把你本机 `npm run dev` 的输出贴出来（包含端口号），我可以帮你判断应该访问哪个 URL、以及怎么快速点点点验证页面功能。
