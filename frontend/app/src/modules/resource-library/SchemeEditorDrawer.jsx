@@ -145,8 +145,8 @@ export function SchemeEditorDrawer({ open, scheme, mode = 'edit', onClose, onSav
               const config = byFileType[fileType] || {}
               return (
                 <div key={fileType} className="rounded-[var(--kiveiv-radius-control)] border border-[var(--kiveiv-border)] bg-white p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
                       <h5 className="text-sm font-semibold text-[var(--kiveiv-text)]">{FILE_TYPE_LABELS[fileType]}</h5>
                       <p className="mt-1 text-xs text-[var(--kiveiv-text-muted)]">推荐值已预设，非专家也可直接用。</p>
                     </div>
@@ -157,7 +157,7 @@ export function SchemeEditorDrawer({ open, scheme, mode = 'edit', onClose, onSav
                         const label = STRATEGY_OPTIONS.find((item) => item.id === nextId)?.label || nextId
                         updateSegConfig(fileType, { strategyId: nextId, strategyName: label })
                       }}
-                      className="kiveiv-select h-9 text-xs"
+                      className="kiveiv-select h-9 w-full text-xs sm:w-auto sm:min-w-[220px] sm:shrink-0"
                     >
                       {STRATEGY_OPTIONS.map((item) => (
                         <option key={item.id} value={item.id}>{item.label}</option>
@@ -252,4 +252,3 @@ function FieldNumber({ label, value, min, max, onChange }) {
     </label>
   )
 }
-

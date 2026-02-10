@@ -16,6 +16,7 @@ import { INITIAL_CHUNKS_BY_DOC } from '../../document-segmentation/data/segmenta
 import { useSchemeStore } from '../../resource-library/SchemeStore.jsx'
 import { SchemeEditorDrawer } from '../../resource-library/SchemeEditorDrawer.jsx'
 import { SchemeConfirmDrawer } from './SchemeConfirmDrawer.jsx'
+import { OverlayDrawer } from '../../shared/components/OverlayDrawer.jsx'
 
 const DOCUMENT_SUBTABS = [
   { id: 'document-upload', label: '文档上传' },
@@ -33,12 +34,33 @@ const INTERNAL_TABS = [
 
 const PROCESS_STEPS = [
   { id: 'upload', label: '导入', description: '上传文档' },
-  { id: 'scheme', label: '方案', description: '按类型选择方案' },
-  { id: 'segment', label: '切分', description: '开始切分' },
-  { id: 'editor', label: '编辑', description: '查看与编辑切片' }
+  { id: 'scheme', label: '方案', description: '按类型确认方案' },
+  { id: 'parse', label: '解析', description: '开始解析并编辑判正' },
+  { id: 'segment', label: '切分', description: '开始切分并查看结果' },
+  { id: 'index', label: '索引', description: '抽取与结果管理' }
 ]
 
-export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing', onBack, onNavigateConfig, onNavigateOps }) {
+const DOC_OVERRIDE_STRATEGIES = [
+  { id: '', label: '跟随方案（默认）' },
+  { id: 'semantic', label: '语义边界切分（推荐）' },
+  { id: 'structured', label: '结构化切分' }
+]
+
+const LLM_OPTIONS = ['gpt-4.1-mini', 'gpt-4.1', 'qwen-max', 'deepseek-chat']
+const EMBEDDING_OPTIONS = ['text-embedding-3-small', 'text-embedding-3-large', 'bge-m3']
+
+export function KnowledgeBaseWorkspace({
+  knowledgeBase,
+  entrySource = 'existing',
+  onBack,
+  onNavigateConfig,
+  onNavigateOps,
+  onUpdateKnowledgeBase,
+  onNavigateResourceLibrary,
+  resumeFromResourceLibrary,
+  onResumeConsumed,
+  onSetMainHeaderContent
+}) {
   const [activeTab, setActiveTab] = useState(INTERNAL_TABS[0].id)
   const [activeDocumentTab, setActiveDocumentTab] = useState('document-list')
   const [activeSegmentationTab, setActiveSegmentationTab] = useState(SEGMENTATION_FLOW_TABS[0]?.id ?? 'seg-docs')
@@ -47,6 +69,10 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
   const [editorDocument, setEditorDocument] = useState(null)
   const [processTargetDoc, setProcessTargetDoc] = useState(null)
   const [schemeConfirmOpen, setSchemeConfirmOpen] = useState(false)
+  const [docOverrideEditor, setDocOverrideEditor] = useState({ open: false, docId: '' })
+  const [docOverrideDraft, setDocOverrideDraft] = useState({ strategyId: '', llmModel: '', embeddingModel: '' })
+  const [segResultDocId, setSegResultDocId] = useState(null)
+  const [schemeDraftApply, setSchemeDraftApply] = useState({ fileType: '', schemeId: '' })
   const [schemeEditor, setSchemeEditor] = useState({ open: false, schemeId: null, mode: 'edit' })
   const [schemeConfirmedAt, setSchemeConfirmedAt] = useState('')
   const prevStageRef = useRef({
@@ -72,6 +98,7 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
     documents,
     uploadQueue,
     setDocuments,
+    startProcessing,
     ensureParsedContent
   } = useDocumentStore()
   const {
@@ -98,7 +125,7 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
   const { openProgress, tasks, createTask, setTasks } = useExtractionTasksContext()
   const { documents: lifecycleDocuments } = useDocumentLifecycle(knowledgeBase?.id)
   const files = useMemo(() => lifecycleDocuments || [], [lifecycleDocuments])
-  const { schemes, createScheme, updateScheme, getScheme, snapshotScheme } = useSchemeStore()
+  const { schemes, createScheme, duplicateScheme, updateScheme, getScheme, snapshotScheme } = useSchemeStore()
 
   useEffect(() => {
     if (!knowledgeBase?.id) return
@@ -198,16 +225,44 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
     setActiveDocumentTab('document-edit')
   }
 
-  const handleOpenSegResultFromFile = () => {
+  const handleOpenEditorFromDocId = (docId) => {
+    if (!docId) return
+    const file = files.find((item) => item.id === docId)
+    if (!file) return
+    handleOpenEditorFromFile(file)
+  }
+
+  const handleOpenSegResultFromFile = (file) => {
+    if (!file?.id) return
+    setSegResultDocId(file.id)
     setActiveTab('text-segmentation')
     setActiveSegmentationTab('seg-results')
   }
+
+  const activeOverrideDoc = useMemo(() => {
+    if (!docOverrideEditor.open || !docOverrideEditor.docId) return null
+    return documents.find((doc) => doc.id === docOverrideEditor.docId) || null
+  }, [docOverrideEditor.open, docOverrideEditor.docId, documents])
+
+  useEffect(() => {
+    if (!docOverrideEditor.open || !activeOverrideDoc) return
+    const overrides = activeOverrideDoc.pipelineOverrides || {}
+    setDocOverrideDraft({
+      strategyId: overrides?.segmentation?.strategyId || '',
+      llmModel: overrides?.models?.llmModel || '',
+      embeddingModel: overrides?.models?.embeddingModel || ''
+    })
+  }, [docOverrideEditor.open, activeOverrideDoc])
 
   const uploadDone = documents.length > 0 && uploadQueue.length === 0
 
   const resolveFileGroup = (docName = '') => {
     const ext = String(docName).split('.').pop()?.toLowerCase()
     if (ext === 'xls' || ext === 'xlsx') return 'excel'
+    if (ext === 'doc' || ext === 'docx') return 'docx'
+    if (ext === 'ppt' || ext === 'pptx') return 'ppt'
+    if (ext === 'md' || ext === 'txt') return 'md'
+    if (ext === 'jpg' || ext === 'jpeg' || ext === 'png') return 'image'
     return 'pdf'
   }
 
@@ -234,10 +289,10 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
     }))
   }
 
-  const startSegmentationFromSchemes = (selection) => {
+  const startParsingFromSchemes = (selection) => {
     const baseId = knowledgeBase?.id
     if (!baseId) return
-    const targetDocs = documents.filter((doc) => doc?.enabled !== false)
+    const targetDocs = documents.filter((doc) => doc?.enabled !== false && doc.status === '未解析')
     if (!targetDocs.length) return
 
     const now = Date.now()
@@ -245,60 +300,89 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
     const ts = `${new Date(now).getFullYear()}-${pad(new Date(now).getMonth() + 1)}-${pad(new Date(now).getDate())} ${pad(new Date(now).getHours())}:${pad(new Date(now).getMinutes())}`
     setSchemeConfirmedAt(ts)
 
-    setDocuments((prev) =>
-      prev.map((doc) =>
-        targetDocs.some((item) => item.id === doc.id)
-          ? { ...doc, status: '已解析', progress: 100, updatedAt: now, dataset: doc.dataset || { basePath: '/auto' } }
-          : doc
-      )
-    )
-    targetDocs.forEach((doc) => ensureParsedContent(doc.id, () => buildSegmentsForDocument(doc)))
-
-    const nextSegDocs = targetDocs.map((doc) => {
-      const groupId = resolveFileGroup(doc.name)
-      const schemeId = selection?.[groupId] || knowledgeBase?.defaultSchemeId || 'SCH-DEFAULT'
-      const schemeSnapshot = snapshotScheme(schemeId)
-      const config = schemeSnapshot?.pipelines?.segmentation?.byFileType?.[groupId] || null
-      return {
-        id: doc.id,
-        name: doc.name.endsWith('.md') ? doc.name : `${doc.name.replace(/\.[^.]+$/, '')}.md`,
-        status: 'not_processed',
-        updatedAt: formatDateTime(new Date()),
-        totalChunks: 0,
-        source: '上传流程',
-        fileGroup: groupId,
-        schemeId,
-        schemeName: schemeSnapshot?.name || schemeId,
-        schemeSnapshotAt: schemeSnapshot?.snapshotAt || ts,
-        config
-      }
-    })
-
-    setSegDocuments((prev) => {
-      const map = new Map((prev || []).map((item) => [item.id, item]))
-      nextSegDocs.forEach((item) => {
-        map.set(item.id, { ...(map.get(item.id) || {}), ...item })
+    setSchemeConfirmOpen(false)
+    if (onUpdateKnowledgeBase) {
+      const nextDefaultSchemeId = selection?.pdf
+        || selection?.docx
+        || selection?.ppt
+        || selection?.md
+        || selection?.excel
+        || selection?.image
+        || knowledgeBase?.defaultSchemeId
+        || 'SCH-DEFAULT'
+      onUpdateKnowledgeBase(baseId, {
+        defaultSchemeId: nextDefaultSchemeId,
+        schemeSelectionByFileType: { ...selection }
       })
-      return Array.from(map.values())
-    }, baseId)
+    }
+    const targetIds = targetDocs.map((doc) => doc.id)
 
-    setChunksByDoc((prev) => {
-      const next = { ...(prev || {}) }
-      nextSegDocs.forEach((item) => {
-        if (!next[item.id] || !next[item.id].length) {
-          const sourceDoc = targetDocs.find((d) => d.id === item.id) || { id: item.id, name: item.name }
-          next[item.id] = buildChunksForDoc(sourceDoc, item.config)
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (!targetIds.includes(doc.id)) return doc
+        const groupId = resolveFileGroup(doc.name)
+        const schemeId = selection?.[groupId] || knowledgeBase?.defaultSchemeId || 'SCH-DEFAULT'
+        const schemeSnapshot = snapshotScheme(schemeId)
+        const overrides = doc.pipelineOverrides || {}
+        const overrideSeg = overrides?.segmentation || null
+        const baseSegConfig = schemeSnapshot?.pipelines?.segmentation?.byFileType?.[groupId] || null
+        const segmentationConfig = baseSegConfig && overrideSeg?.strategyId
+          ? {
+              ...baseSegConfig,
+              strategyId: overrideSeg.strategyId,
+              strategyName: overrideSeg.strategyName || (DOC_OVERRIDE_STRATEGIES.find((item) => item.id === overrideSeg.strategyId)?.label || baseSegConfig.strategyName)
+            }
+          : baseSegConfig
+        const baseIndexConfig = schemeSnapshot?.pipelines?.index || null
+        const baseQaConfig = schemeSnapshot?.pipelines?.qa || null
+        const overrideModels = overrides?.models || null
+        const indexConfig = baseIndexConfig && overrideModels?.llmModel
+          ? { ...baseIndexConfig, model: { ...(baseIndexConfig.model || {}), name: overrideModels.llmModel }, embeddingModel: overrideModels.embeddingModel || baseIndexConfig.embeddingModel }
+          : (baseIndexConfig && overrideModels?.embeddingModel ? { ...baseIndexConfig, embeddingModel: overrideModels.embeddingModel } : baseIndexConfig)
+        const qaConfig = baseQaConfig && overrideModels?.llmModel
+          ? { ...baseQaConfig, model: { ...(baseQaConfig.model || {}), name: overrideModels.llmModel } }
+          : baseQaConfig
+        return {
+          ...doc,
+          schemeId,
+          schemeName: schemeSnapshot?.name || schemeId,
+          schemeSnapshotAt: schemeSnapshot?.snapshotAt || ts,
+          fileGroup: groupId,
+          parsingConfig: schemeSnapshot?.pipelines?.parsing || null,
+          segmentationConfig,
+          indexConfig,
+          qaConfig,
+          dataset: doc.dataset || { basePath: '/auto' }
         }
       })
-      return next
-    }, baseId)
+    )
 
-    setActiveTab('text-segmentation')
-    setActiveSegmentationTab(SEGMENTATION_FLOW_TABS[0]?.id ?? 'seg-docs')
-    setSchemeConfirmOpen(false)
-    startSegmentationProgress(nextSegDocs.map((item) => item.id), baseId, baseId)
-    pushPipelineNotice(`已开始切分（${nextSegDocs.length} 个文件）`)
+    startProcessing(targetIds, baseId)
+    targetDocs.forEach((doc) => ensureParsedContent(doc.id, () => buildSegmentsForDocument(doc)))
+    setIsProgressVisible(true)
+    setActiveTab('document-parsing')
+    setActiveDocumentTab('document-list')
+    pushPipelineNotice(`已开始解析（${targetDocs.length} 个文件）`)
   }
+
+  useEffect(() => {
+    if (!resumeFromResourceLibrary?.baseId) return
+    if (resumeFromResourceLibrary.baseId !== knowledgeBase?.id) return
+    if (!resumeFromResourceLibrary.schemeId) {
+      onResumeConsumed?.()
+      return
+    }
+    if (onUpdateKnowledgeBase && resumeFromResourceLibrary.fileType) {
+      onUpdateKnowledgeBase(knowledgeBase.id, {
+        schemeSelectionByFileType: {
+          ...(knowledgeBase.schemeSelectionByFileType || {}),
+          [resumeFromResourceLibrary.fileType]: resumeFromResourceLibrary.schemeId
+        }
+      })
+    }
+    setSchemeConfirmOpen(true)
+    onResumeConsumed?.()
+  }, [resumeFromResourceLibrary, knowledgeBase?.id, knowledgeBase?.schemeSelectionByFileType, onUpdateKnowledgeBase, onResumeConsumed])
 
   const handleSeedDemoFlow = () => {
     const now = Date.now()
@@ -460,15 +544,19 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
 
   const processStepIndex = (() => {
     if (schemeConfirmOpen) return 1
-    if (activeTab === 'document-parsing') return 0
-    if (activeTab === 'text-segmentation') {
-      return activeSegmentationTab === 'seg-results' ? 3 : 2
+    if (activeTab === 'document-parsing') {
+      return activeDocumentTab === 'document-upload' ? 0 : 2
     }
+    if (activeTab === 'text-segmentation') return 3
+    if (activeTab === 'index-building') return 4
     return 0
   })()
 
   const docTotal = documents.length
   const uploadingCount = uploadQueue.length
+  const parsingCount = documents.filter((doc) => doc.status === '解析中').length
+  const parsedCount = documents.filter((doc) => doc.status === '已解析').length
+  const unparsedCount = documents.filter((doc) => doc.status === '未解析').length
 
   const segTotal = segDocuments.length
   const segProcessing = segDocuments.filter((doc) => doc.status === 'processing').length
@@ -476,6 +564,8 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
   const segError = segDocuments.filter((doc) => doc.status === 'error').length
   const schemeReady = docTotal > 0 && uploadingCount === 0
   const schemeDone = Boolean(schemeConfirmedAt)
+  const indexRunning = tasks.some((task) => task.status === 'running' && task.progress < 100)
+  const indexCompleted = tasks.some((task) => task.status === 'completed')
 
   const stepsMeta = [
     {
@@ -492,7 +582,7 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
       id: 'scheme',
       status: schemeDone ? 'done' : schemeReady ? 'ready' : docTotal > 0 ? 'blocked' : 'idle',
       summary: schemeDone ? `已确认 ${schemeConfirmedAt}` : schemeReady ? '待确认方案' : '未准备',
-      hint: schemeReady ? '按文件类型确认方案后开始切分' : docTotal > 0 ? '等待上传完成' : '先上传文档',
+      hint: schemeReady ? '按文件类型确认方案后开始解析' : docTotal > 0 ? '等待上传完成' : '先上传文档',
       onClick: () => {
         setActiveTab('document-parsing')
         setActiveDocumentTab('document-upload')
@@ -500,23 +590,33 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
       }
     },
     {
+      id: 'parse',
+      status: parsingCount > 0 ? 'doing' : parsedCount > 0 ? 'done' : schemeDone ? 'ready' : 'blocked',
+      summary: parsingCount > 0 ? `解析中 ${parsingCount} 个` : parsedCount > 0 ? `已解析 ${parsedCount}/${docTotal}` : '未解析',
+      hint: schemeDone ? (unparsedCount > 0 ? '开始解析并在列表中编辑判正' : '解析已完成，可进入切分') : '需先完成方案确认',
+      onClick: () => {
+        setActiveTab('document-parsing')
+        setActiveDocumentTab('document-list')
+      }
+    },
+    {
       id: 'segment',
-      status: segProcessing > 0 ? 'doing' : segProcessed > 0 ? 'done' : schemeDone ? 'ready' : 'blocked',
+      status: segProcessing > 0 ? 'doing' : segProcessed > 0 ? 'done' : parsedCount > 0 ? 'ready' : 'blocked',
       summary: segProcessing > 0 ? `切分中 ${segProcessing} 个` : segProcessed > 0 ? `已完成 ${segProcessed}/${segTotal}` : '未切分',
-      hint: schemeDone ? '切分将在文本切分页展示进度' : '需先完成方案确认',
+      hint: parsedCount > 0 ? '进入文本切分开始切分并查看结果' : '需先完成解析与编辑判正',
       onClick: () => {
         setActiveTab('text-segmentation')
         setActiveSegmentationTab(SEGMENTATION_FLOW_TABS[0]?.id ?? 'seg-docs')
       }
     },
     {
-      id: 'editor',
-      status: segProcessed > 0 ? 'ready' : 'blocked',
-      summary: segProcessed > 0 ? '可编辑切片' : '未生成切片',
-      hint: segProcessed > 0 ? '进入切分结果页查看与编辑' : '需先完成切分',
+      id: 'index',
+      status: indexRunning ? 'doing' : indexCompleted ? 'done' : segProcessed > 0 ? 'ready' : 'blocked',
+      summary: indexRunning ? '索引任务进行中' : indexCompleted ? '已生成抽取结果' : '未开始',
+      hint: segProcessed > 0 ? '进入索引构建管理抽取任务与结果' : '需先完成切分',
       onClick: () => {
-        setActiveTab('text-segmentation')
-        setActiveSegmentationTab('seg-results')
+        setActiveTab('index-building')
+        setActiveIndexBuildingTab(INDEX_BUILDING_TABS[0]?.id ?? 'extract-entry')
       }
     }
   ]
@@ -587,49 +687,60 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
     }
   }, [])
 
+  const hideFlowHeader = activeTab === 'document-parsing' && activeDocumentTab === 'document-edit'
+
+  useEffect(() => {
+    if (!onSetMainHeaderContent) return undefined
+
+    onSetMainHeaderContent(
+      <div className="flex w-full flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--kiveiv-radius-control)] border border-[var(--kiveiv-border)] text-[var(--kiveiv-text-muted)] hover:bg-[var(--kiveiv-surface-muted)]"
+            title="返回知识库列表"
+            aria-label="返回知识库列表"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
+            </svg>
+          </button>
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-wide text-gray-400">知识库</p>
+            <p className="truncate text-base font-medium text-gray-900">{knowledgeBase?.name || '未选中'}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {activeTab === 'file-system' && (
+            <button
+              type="button"
+              onClick={handleSeedDemoFlow}
+              className="kiveiv-btn-secondary h-10 px-3 text-xs"
+            >
+              注入全流程 Mock 数据
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onNavigateConfig?.()}
+            className="kiveiv-btn-secondary h-10 px-3 text-xs"
+          >
+            资源库
+          </button>
+        </div>
+      </div>
+    )
+
+    return () => {
+      onSetMainHeaderContent(null)
+    }
+  }, [onSetMainHeaderContent, knowledgeBase?.id, knowledgeBase?.name, onBack, activeTab, onNavigateConfig, handleSeedDemoFlow])
+
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-h-0 flex-1 flex-col page-shell">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--kiveiv-radius-control)] border border-[var(--kiveiv-border)] text-[var(--kiveiv-text-muted)] hover:bg-[var(--kiveiv-surface-muted)]"
-              title="返回知识库列表"
-              aria-label="返回知识库列表"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
-              </svg>
-            </button>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-gray-400">知识库</p>
-              <p className="text-lg font-medium text-gray-900">{knowledgeBase?.name || '未选中'}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {activeTab === 'file-system' && (
-              <button
-                type="button"
-                onClick={handleSeedDemoFlow}
-                className="kiveiv-btn-secondary h-10 px-3 text-xs"
-              >
-                注入全流程 Mock 数据
-              </button>
-            )}
-            {activeTab !== 'file-system' && (
-              <button
-                type="button"
-                onClick={() => onNavigateConfig?.()}
-                className="kiveiv-btn-secondary h-10 px-3 text-xs"
-              >
-                资源库
-              </button>
-            )}
-          </div>
-        </div>
-
+        {!hideFlowHeader && (
         <section className="mb-5">
           <div className="kiveiv-flow-wrap">
             {PROCESS_STEPS.map((step, index) => {
@@ -662,6 +773,7 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
             </div>
           )}
         </section>
+        )}
 
         {activeTab === 'file-system' && (
           <FileSystemPage
@@ -688,6 +800,10 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
             onJumpSegmentation={handleJumpSegmentation}
             onJumpIndexBuilding={handleJumpIndexBuilding}
             onJumpTagManagement={handleJumpTagManagement}
+            onModifyConfig={(doc) => {
+              if (!doc?.id) return
+              setDocOverrideEditor({ open: true, docId: doc.id })
+            }}
             onEditDocument={handleOpenEditorFromFile}
             onViewSegResults={handleOpenSegResultFromFile}
             onCreate={() => {
@@ -706,36 +822,7 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
           <>
             {activeDocumentTab === 'document-upload' ? (
               <div className="kiveiv-stack-section">
-                <DocumentUpload />
-                {uploadDone && (
-                  <section className="kiveiv-card p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-[var(--kiveiv-text)]">上传完成</h3>
-                        <p className="mt-1 text-xs text-[var(--kiveiv-text-muted)]">下一步：按文件类型确认切分方案后开始切分。</p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => pushPipelineNotice('你可以继续添加更多文件')}
-                          className="kiveiv-btn-secondary h-9 px-3 text-xs"
-                        >
-                          继续上传
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSchemeConfirmOpen(true)}
-                          className="kiveiv-btn-primary h-9 px-3 text-xs"
-                        >
-                          进入切分
-                        </button>
-                      </div>
-                    </div>
-                    <div className="mt-3 rounded-[var(--kiveiv-radius-control)] border border-[var(--kiveiv-border)] bg-[var(--kiveiv-surface-muted)] px-3 py-2 text-xs kiveiv-muted">
-                      默认方案：{knowledgeBase?.defaultSchemeId || 'SCH-DEFAULT'}（步骤2可按文件类型临时更换）
-                    </div>
-                  </section>
-                )}
+                <DocumentUpload onStartParse={() => setSchemeConfirmOpen(true)} />
               </div>
             ) : activeDocumentTab === 'document-processing' ? (
               <DocumentProcess
@@ -749,23 +836,39 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
                 onInitialSelectionConsumed={() => setProcessTargetDoc(null)}
               />
             ) : activeDocumentTab === 'document-list' ? (
-              <DocumentList
-                onViewDocument={(doc) => {
-                  setViewerDocument(doc)
-                  setActiveDocumentTab('document-viewer')
-                }}
-                onParseDocument={(doc) => {
-                  setProcessTargetDoc(doc)
-                  setActiveDocumentTab('document-processing')
-                }}
-                onViewProgress={() => {
-                  setActiveDocumentTab('document-processing')
-                }}
-                onEditDocument={(doc) => {
-                  setEditorDocument(doc)
-                  setActiveDocumentTab('document-edit')
-                }}
-              />
+              <div className="kiveiv-stack-section">
+                {schemeDone && parsedCount > 0 && (
+                  <section className="kiveiv-card p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-[var(--kiveiv-text)]">解析完成</h3>
+                        <p className="mt-1 text-xs text-[var(--kiveiv-text-muted)]">下一步：进入切分阶段开始切分；“查看结果”将回到编辑器继续修订。</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('text-segmentation')
+                          setActiveSegmentationTab(SEGMENTATION_FLOW_TABS[0]?.id ?? 'seg-docs')
+                        }}
+                        className="kiveiv-btn-primary h-9 px-3 text-xs"
+                      >
+                        进入切分
+                      </button>
+                    </div>
+                  </section>
+                )}
+                <DocumentList
+                  onViewDocument={(doc) => {
+                    setViewerDocument(doc)
+                    setActiveDocumentTab('document-viewer')
+                  }}
+                  onParseDocument={() => setSchemeConfirmOpen(true)}
+                  onEditDocument={(doc) => {
+                    setEditorDocument(doc)
+                    setActiveDocumentTab('document-edit')
+                  }}
+                />
+              </div>
             ) : activeDocumentTab === 'document-viewer' ? (
               <DocumentViewer
                 document={viewerDocument}
@@ -799,6 +902,8 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
             onNavigateSettings={(tabId) => {
               onNavigateConfig?.(tabId || 'model-layout')
             }}
+            openResultDocId={segResultDocId}
+            onOpenResultConsumed={() => setSegResultDocId(null)}
           />
         )}
 
@@ -823,16 +928,178 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
         schemes={schemes}
         documents={documents}
         onClose={() => setSchemeConfirmOpen(false)}
-        onConfirm={(selection) => startSegmentationFromSchemes(selection)}
-        onEditScheme={(schemeId) => {
+        onConfirm={(selection) => startParsingFromSchemes(selection)}
+        onEditScheme={({ schemeId, fileType }) => {
           if (!schemeId) return
-          setSchemeEditor({ open: true, schemeId, mode: 'edit' })
+          const nextId = duplicateScheme?.(schemeId)
+          if (!nextId) return
+          setSchemeDraftApply({ fileType: fileType || '', schemeId: nextId })
+          setSchemeEditor({ open: true, schemeId: nextId, mode: 'create' })
         }}
         onCreateScheme={() => {
           const id = createScheme({ name: `${knowledgeBase?.name || '知识库'} - 新方案` })
-          if (id) setSchemeEditor({ open: true, schemeId: id, mode: 'create' })
+          if (id) {
+            setSchemeDraftApply({ fileType: '', schemeId: id })
+            setSchemeEditor({ open: true, schemeId: id, mode: 'create' })
+          }
+        }}
+        onNavigateLibrary={(payload) => {
+          const baseId = knowledgeBase?.id
+          if (!baseId) return
+          onNavigateResourceLibrary?.({
+            baseId,
+            step: 'scheme',
+            fileType: payload?.fileType || '',
+            schemeId: payload?.schemeId || ''
+          })
         }}
       />
+
+      <OverlayDrawer
+        open={docOverrideEditor.open}
+        title="修改配置（可选）"
+        description="留空表示跟随下一步「方案中心」的配置；只对后续新任务生效。"
+        widthClassName="max-w-lg"
+        onClose={() => setDocOverrideEditor({ open: false, docId: '' })}
+        footer={(
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setDocOverrideDraft({ strategyId: '', llmModel: '', embeddingModel: '' })
+              }}
+              className="kiveiv-btn-secondary"
+            >
+              清除自定义
+            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setDocOverrideEditor({ open: false, docId: '' })}
+                className="kiveiv-btn-secondary"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const docId = docOverrideEditor.docId
+                  if (!docId) return
+                  const next = {
+                    strategyId: docOverrideDraft.strategyId || '',
+                    llmModel: docOverrideDraft.llmModel || '',
+                    embeddingModel: docOverrideDraft.embeddingModel || ''
+                  }
+                  const hasAny = Boolean(next.strategyId || next.llmModel || next.embeddingModel)
+                  const strategyName = next.strategyId
+                    ? (DOC_OVERRIDE_STRATEGIES.find((item) => item.id === next.strategyId)?.label || next.strategyId)
+                    : ''
+                  setDocuments((prev) =>
+                    prev.map((doc) => {
+                      if (doc.id !== docId) return doc
+                      const pipelineOverrides = hasAny
+                        ? {
+                            segmentation: next.strategyId ? { strategyId: next.strategyId, strategyName } : undefined,
+                            models: (next.llmModel || next.embeddingModel) ? { llmModel: next.llmModel || '', embeddingModel: next.embeddingModel || '' } : undefined
+                          }
+                        : undefined
+
+                      const segmentationConfig = doc.segmentationConfig && next.strategyId
+                        ? { ...doc.segmentationConfig, strategyId: next.strategyId, strategyName }
+                        : doc.segmentationConfig
+
+                      const indexConfig = doc.indexConfig && (next.llmModel || next.embeddingModel)
+                        ? {
+                            ...doc.indexConfig,
+                            ...(next.embeddingModel ? { embeddingModel: next.embeddingModel } : {}),
+                            ...(next.llmModel ? { model: { ...(doc.indexConfig.model || {}), name: next.llmModel } } : {})
+                          }
+                        : doc.indexConfig
+
+                      const qaConfig = doc.qaConfig && next.llmModel
+                        ? { ...doc.qaConfig, model: { ...(doc.qaConfig.model || {}), name: next.llmModel } }
+                        : doc.qaConfig
+
+                      const cleaned = {}
+                      if (pipelineOverrides?.segmentation) cleaned.segmentation = pipelineOverrides.segmentation
+                      if (pipelineOverrides?.models) cleaned.models = pipelineOverrides.models
+
+                      const nextDoc = {
+                        ...doc,
+                        segmentationConfig,
+                        indexConfig,
+                        qaConfig,
+                        updatedAt: typeof doc.updatedAt === 'string' ? formatDateTime(Date.now()) : Date.now()
+                      }
+                      if (Object.keys(cleaned).length) {
+                        return { ...nextDoc, pipelineOverrides: cleaned }
+                      }
+                      const { pipelineOverrides: _pipelineOverrides, ...rest } = nextDoc
+                      return rest
+                    })
+                  )
+                  setDocOverrideEditor({ open: false, docId: '' })
+                }}
+                className="kiveiv-btn-primary"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        )}
+      >
+        <div className="space-y-4">
+          <div className="rounded-[var(--kiveiv-radius-inner)] border border-[var(--kiveiv-border)] bg-[var(--kiveiv-surface-muted)] px-3 py-2 text-xs text-[var(--kiveiv-text-muted)]">
+            当前文档：<span className="font-semibold text-[var(--kiveiv-text)]">{activeOverrideDoc?.name || '--'}</span>
+            <span className="ml-2 text-[11px] text-[var(--kiveiv-text-subtle)]">ID: {activeOverrideDoc?.id || '--'}</span>
+          </div>
+
+          <label className="kiveiv-form-row">
+            <span className="text-xs font-semibold kiveiv-muted">切分方式</span>
+            <select
+              value={docOverrideDraft.strategyId}
+              onChange={(event) => setDocOverrideDraft((prev) => ({ ...prev, strategyId: event.target.value }))}
+              className="kiveiv-select mt-2 w-full"
+            >
+              {DOC_OVERRIDE_STRATEGIES.map((item) => (
+                <option key={item.id || '__default__'} value={item.id}>{item.label}</option>
+              ))}
+            </select>
+            <span className="mt-2 block text-[11px] text-[var(--kiveiv-text-subtle)]">
+              不选择则跟随方案中心：按文件类型使用对应策略。
+            </span>
+          </label>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="kiveiv-form-row">
+              <span className="text-xs font-semibold kiveiv-muted">问答模型</span>
+              <select
+                value={docOverrideDraft.llmModel}
+                onChange={(event) => setDocOverrideDraft((prev) => ({ ...prev, llmModel: event.target.value }))}
+                className="kiveiv-select mt-2 w-full"
+              >
+                <option value="">跟随方案（默认）</option>
+                {LLM_OPTIONS.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+            <label className="kiveiv-form-row">
+              <span className="text-xs font-semibold kiveiv-muted">向量模型</span>
+              <select
+                value={docOverrideDraft.embeddingModel}
+                onChange={(event) => setDocOverrideDraft((prev) => ({ ...prev, embeddingModel: event.target.value }))}
+                className="kiveiv-select mt-2 w-full"
+              >
+                <option value="">跟随方案（默认）</option>
+                {EMBEDDING_OPTIONS.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      </OverlayDrawer>
 
       {schemeEditor.open && schemeEditor.schemeId && (
         <SchemeEditorDrawer
@@ -842,6 +1109,21 @@ export function KnowledgeBaseWorkspace({ knowledgeBase, entrySource = 'existing'
           onClose={() => setSchemeEditor({ open: false, schemeId: null, mode: 'edit' })}
           onSave={(payload) => {
             updateScheme(schemeEditor.schemeId, payload)
+            if (onUpdateKnowledgeBase && schemeDraftApply.schemeId) {
+              const baseId = knowledgeBase?.id
+              if (baseId) {
+                const fileType = schemeDraftApply.fileType
+                const nextSelection = {
+                  ...(knowledgeBase?.schemeSelectionByFileType || {}),
+                  ...(fileType ? { [fileType]: schemeDraftApply.schemeId } : {})
+                }
+                onUpdateKnowledgeBase(baseId, {
+                  schemeSelectionByFileType: nextSelection,
+                  defaultSchemeId: schemeDraftApply.schemeId || knowledgeBase?.defaultSchemeId || 'SCH-DEFAULT'
+                })
+              }
+            }
+            setSchemeDraftApply({ fileType: '', schemeId: '' })
             setSchemeEditor({ open: false, schemeId: null, mode: 'edit' })
           }}
         />

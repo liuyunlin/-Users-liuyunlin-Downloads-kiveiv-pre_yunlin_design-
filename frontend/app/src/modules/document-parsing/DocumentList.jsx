@@ -4,6 +4,7 @@ import { TaskListTable } from '../shared/components/TaskListTable.jsx'
 import { useDocumentLifecycle } from '../knowledge-base/hooks/useDocumentLifecycle.js'
 import { StateBadge, parseStatusTone } from '../shared/components/StateBadge.jsx'
 import { ListManageDrawer } from '../shared/components/ListManageDrawer.jsx'
+import { LinearProgress } from '../shared/components/LinearProgress.jsx'
 
 const PAGE_SIZE = 10
 
@@ -207,7 +208,14 @@ export function DocumentList({ onViewDocument, onParseDocument, onViewProgress, 
                 <td className="whitespace-nowrap px-6 py-3 text-sm kiveiv-muted">{doc.type}</td>
                 <td className="whitespace-nowrap px-6 py-3 text-sm kiveiv-muted">{doc.size}</td>
                 <td className="whitespace-nowrap px-6 py-3 text-sm">
-                  <StateBadge label={doc.status || '未解析'} tone={parseStatusTone(doc.status)} />
+                  <div className="min-w-[132px]">
+                    <StateBadge label={doc.status || '未解析'} tone={parseStatusTone(doc.status)} />
+                    {doc.status === '解析中' && (
+                      <div className="mt-2 w-28">
+                        <LinearProgress value={doc.progress || 0} />
+                      </div>
+                    )}
+                  </div>
                 </td>
                 <td className="whitespace-nowrap px-6 py-3 text-sm">
                   <StateBadge label={doc.segStatusLabel || '未切分'} tone={doc.segStatusLabel === '切分中' ? 'progress' : (doc.segStatusLabel === '切分完成' ? 'success' : 'neutral')} className={doc.segStatusStyle || ''} />

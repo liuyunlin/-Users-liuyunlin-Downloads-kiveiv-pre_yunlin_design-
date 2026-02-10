@@ -14,6 +14,8 @@ import { ResourceLibraryPage, SchemeProvider } from './resource-library/index.js
 import { OverlayDrawer } from './shared/components/OverlayDrawer.jsx'
 import { SettingsPage } from './settings/SettingsPage.jsx'
 
+const NAV_STORAGE_KEY = 'kiveiv.nav.returnContext.v1'
+
 const topSections = [
   { id: 'qa', name: '问答', icon: ChatIcon },
   { id: 'knowledge-base', name: '知识库', icon: KnowledgeIcon },
@@ -40,11 +42,20 @@ export function ModulePage() {
 
 function ModuleShell() {
   const [activeSection, setActiveSection] = useState('knowledge-base')
-  const [lastWorkbenchSection, setLastWorkbenchSection] = useState('knowledge-base')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [pendingOpsTab, setPendingOpsTab] = useState(null)
   const [hasUnreadNotice, setHasUnreadNotice] = useState(true)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [mainHeaderContent, setMainHeaderContent] = useState(null)
+  const [returnContext, setReturnContext] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(NAV_STORAGE_KEY)
+      return raw ? JSON.parse(raw) : null
+    } catch {
+      return null
+    }
+  })
+  const [kbResume, setKbResume] = useState(null)
   const { activeKnowledgeBaseId } = useKnowledgeBaseStore()
   const classNames = (...classes) => classes.filter(Boolean).join(' ')
   const activeSectionMeta = topSections.find((item) => item.id === activeSection)
@@ -59,6 +70,18 @@ function ModuleShell() {
     window.addEventListener('resize', syncSidebar)
     return () => window.removeEventListener('resize', syncSidebar)
   }, [])
+
+  useEffect(() => {
+    try {
+      if (returnContext) {
+        window.localStorage.setItem(NAV_STORAGE_KEY, JSON.stringify(returnContext))
+      } else {
+        window.localStorage.removeItem(NAV_STORAGE_KEY)
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }, [returnContext])
 
   return (
     <>
@@ -144,39 +167,61 @@ function ModuleShell() {
               {activeSection !== 'qa' && (
                 <header className="kiveiv-main-header">
                   <div className="kiveiv-main-header-inner">
-                    <h2 className="kiveiv-main-header-title">{activeSectionMeta?.name || '工作台'}</h2>
+                    {mainHeaderContent || <h2 className="kiveiv-main-header-title">{activeSectionMeta?.name || '工作台'}</h2>}
                   </div>
                 </header>
               )}
               <div className={`kiveiv-main-content-scroll ${activeSection === 'qa' ? 'kiveiv-main-content-scroll-locked' : ''} ${activeSection === 'knowledge-base' ? 'kb-main-scroll' : ''}`}>
                 <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-                {activeSection === 'knowledge-base' ? (
-                  <KnowledgeBasePage
-                    onNavigateConfig={(tabId) => {
-                      setLastWorkbenchSection('knowledge-base')
+	                {activeSection === 'knowledge-base' ? (
+	                  <KnowledgeBasePage
+	                    onSetMainHeaderContent={setMainHeaderContent}
+	                    onNavigateConfig={() => {
+	                      setActiveSection('resource-library')
+	                    }}
+	                    onNavigateResourceLibrary={(payload) => {
+	                      setReturnContext({
+	                        from: 'knowledge-base',
+	                        baseId: payload?.baseId || activeKnowledgeBaseId,
+	                        step: payload?.step || 'scheme',
+                        fileType: payload?.fileType || '',
+                        schemeId: payload?.schemeId || ''
+                      })
                       setActiveSection('resource-library')
                     }}
-                    onNavigateOps={(tabId) => {
-                      setLastWorkbenchSection('knowledge-base')
-                      setPendingOpsTab(tabId || 'seg-tags')
-                      setActiveSection('knowledge-ops')
-                    }}
-                  />
+	                    resumeFromResourceLibrary={kbResume}
+	                    onResumeConsumed={() => setKbResume(null)}
+	                    onNavigateOps={(tabId) => {
+	                      setPendingOpsTab(tabId || 'seg-tags')
+	                      setActiveSection('knowledge-ops')
+	                    }}
+	                  />
                 ) : activeSection === 'qa' ? (
                     <IntelligentQAPage />
-                  ) : activeSection === 'knowledge-ops' ? (
-                    <KnowledgeOpsPage
-                      initialTab={pendingOpsTab || 'seg-tags'}
-                      onInitialTabConsumed={() => setPendingOpsTab(null)}
-                      onNavigateConfig={(tabId) => {
-                        setLastWorkbenchSection('knowledge-ops')
-                        setActiveSection('resource-library')
-                      }}
-                    />
+	                  ) : activeSection === 'knowledge-ops' ? (
+	                    <KnowledgeOpsPage
+	                      initialTab={pendingOpsTab || 'seg-tags'}
+	                      onInitialTabConsumed={() => setPendingOpsTab(null)}
+	                      onSetMainHeaderContent={setMainHeaderContent}
+	                      onNavigateConfig={() => {
+	                        setActiveSection('resource-library')
+	                      }}
+	                    />
                   ) : activeSection === 'dashboard' ? (
                     <DashboardPage />
                   ) : (
-                    <ResourceLibraryPage />
+                    <ResourceLibraryPage
+                      returnContext={returnContext}
+                      onReturnContextConsumed={() => setReturnContext(null)}
+                      onReturnToKnowledgeBase={(payload) => {
+                        setKbResume({
+                          ...(returnContext || {}),
+                          schemeId: payload?.schemeId || ''
+                        })
+                        setReturnContext(null)
+                        setActiveSection('knowledge-base')
+                      }}
+                    />
                   )}
                 </div>
               </div>

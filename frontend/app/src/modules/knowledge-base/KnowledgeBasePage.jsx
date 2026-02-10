@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { KnowledgeBaseList } from './components/KnowledgeBaseList.jsx'
 import { KnowledgeBaseWorkspace } from './components/KnowledgeBaseWorkspace.jsx'
 import { useKnowledgeBaseStore } from './KnowledgeBaseStore.jsx'
 
-export function KnowledgeBasePage({ onNavigateConfig, onNavigateOps }) {
+export function KnowledgeBasePage({ onSetMainHeaderContent, onNavigateConfig, onNavigateOps, onNavigateResourceLibrary, resumeFromResourceLibrary, onResumeConsumed }) {
   const [entrySourceByBaseId, setEntrySourceByBaseId] = useState({})
   const {
     knowledgeBases,
@@ -17,6 +17,11 @@ export function KnowledgeBasePage({ onNavigateConfig, onNavigateOps }) {
   } = useKnowledgeBaseStore()
 
   const activeKnowledgeBase = knowledgeBases.find((base) => base.id === activeKnowledgeBaseId) || null
+
+  useEffect(() => {
+    if (activeKnowledgeBase) return
+    onSetMainHeaderContent?.(null)
+  }, [activeKnowledgeBase, onSetMainHeaderContent])
 
   if (!activeKnowledgeBase) {
     return (
@@ -47,8 +52,13 @@ export function KnowledgeBasePage({ onNavigateConfig, onNavigateOps }) {
       <KnowledgeBaseWorkspace
         knowledgeBase={activeKnowledgeBase}
         entrySource={entrySourceByBaseId[activeKnowledgeBase.id] || 'existing'}
+        onSetMainHeaderContent={onSetMainHeaderContent}
         onNavigateConfig={onNavigateConfig}
         onNavigateOps={onNavigateOps}
+        onNavigateResourceLibrary={onNavigateResourceLibrary}
+        resumeFromResourceLibrary={resumeFromResourceLibrary}
+        onResumeConsumed={onResumeConsumed}
+        onUpdateKnowledgeBase={updateKnowledgeBase}
         onBack={() => setActiveKnowledgeBaseId('')}
       />
     </div>

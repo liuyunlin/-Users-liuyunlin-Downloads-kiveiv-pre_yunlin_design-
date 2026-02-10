@@ -523,6 +523,7 @@ export function DocumentEditor({ document, onBack }) {
     setIsDirty(false)
     setIsEditing(false)
     setInitialSnapshot(json)
+    onBack?.()
   }
 
   const handleImageButtonClick = () => {
@@ -587,52 +588,7 @@ export function DocumentEditor({ document, onBack }) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold" style={{ color: 'var(--kiveiv-text)' }}>{document.name}</h1>
-          <p className="kiveiv-gap-title-body text-sm kiveiv-muted">文档 ID：{document.id}</p>
-          <p className="text-xs kiveiv-subtle">最后保存时间：{formatTimestamp(content.updatedAt)}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onBack}
-            className="kiveiv-btn-secondary"
-          >
-            返回
-          </button>
-          {!isEditing ? (
-            <button
-              type="button"
-              onClick={handleStartEditing}
-              disabled={!datasetReady}
-              className={`kiveiv-btn-primary ${datasetReady ? '' : 'kiveiv-btn-disabled'}`}
-            >
-              开始编辑
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCancelEditing}
-                className="kiveiv-btn-secondary"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={!isDirty}
-                className={`kiveiv-btn-primary ${isDirty ? '' : 'kiveiv-btn-disabled'}`}
-              >
-                保存
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
-
+    <div className="flex h-full min-h-0 flex-col">
       <main className="grid flex-1 min-h-0 gap-5 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         {datasetReady ? (
           <LayoutPreview
@@ -661,8 +617,49 @@ export function DocumentEditor({ document, onBack }) {
 
         <section className="flex h-full min-h-0 flex-col kiveiv-card">
           <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: 'var(--kiveiv-border)' }}>
-            <span className="text-sm font-semibold" style={{ color: 'var(--kiveiv-text)' }}>解析内容</span>
-            <span className="text-xs kiveiv-subtle">{isEditing ? '编辑模式' : '预览模式'}</span>
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="truncate text-sm font-semibold" style={{ color: 'var(--kiveiv-text)' }}>解析内容</span>
+              <span className="text-xs kiveiv-subtle">{isEditing ? '编辑模式' : '预览模式'}</span>
+              <span className="hidden text-xs kiveiv-subtle md:inline">最后保存时间：{formatTimestamp(content.updatedAt)}</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onBack}
+                className="kiveiv-btn-secondary h-8 px-3 text-xs"
+              >
+                返回
+              </button>
+              {!isEditing ? (
+                <button
+                  type="button"
+                  onClick={handleStartEditing}
+                  disabled={!datasetReady}
+                  className={`kiveiv-btn-primary h-8 px-3 text-xs ${datasetReady ? '' : 'kiveiv-btn-disabled'}`}
+                >
+                  开始编辑
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleCancelEditing}
+                    className="kiveiv-btn-secondary h-8 px-3 text-xs"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={!isDirty}
+                    className={`kiveiv-btn-primary h-8 px-3 text-xs ${isDirty ? '' : 'kiveiv-btn-disabled'}`}
+                  >
+                    保存并返回
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           {isEditing && editor ? (

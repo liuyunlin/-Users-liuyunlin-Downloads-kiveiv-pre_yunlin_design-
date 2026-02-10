@@ -81,6 +81,14 @@ export function KnowledgeBaseProvider({ children }) {
       pinned: Boolean(pinned),
       coverPreset,
       defaultSchemeId,
+      schemeSelectionByFileType: {
+        pdf: defaultSchemeId,
+        docx: defaultSchemeId,
+        ppt: defaultSchemeId,
+        md: defaultSchemeId,
+        excel: defaultSchemeId,
+        image: defaultSchemeId
+      },
       llmModel,
       embeddingModel,
       parseMethod,

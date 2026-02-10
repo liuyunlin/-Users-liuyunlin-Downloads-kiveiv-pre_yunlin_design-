@@ -8,6 +8,14 @@ export const KNOWLEDGE_BASES = [
     pinned: true,
     coverPreset: 'sky',
     defaultSchemeId: 'SCH-DEFAULT',
+    schemeSelectionByFileType: {
+      pdf: 'SCH-DEFAULT',
+      docx: 'SCH-DEFAULT',
+      ppt: 'SCH-DEFAULT',
+      md: 'SCH-DEFAULT',
+      excel: 'SCH-DEFAULT',
+      image: 'SCH-DEFAULT'
+    },
     llmModel: 'gpt-4.1-mini',
     embeddingModel: 'text-embedding-3-small',
     parseMethod: 'chunk',
@@ -37,6 +45,14 @@ export const KNOWLEDGE_BASES = [
     pinned: false,
     coverPreset: 'mint',
     defaultSchemeId: 'SCH-QUALITY',
+    schemeSelectionByFileType: {
+      pdf: 'SCH-QUALITY',
+      docx: 'SCH-QUALITY',
+      ppt: 'SCH-QUALITY',
+      md: 'SCH-QUALITY',
+      excel: 'SCH-QUALITY',
+      image: 'SCH-QUALITY'
+    },
     llmModel: 'gpt-4.1-mini',
     embeddingModel: 'text-embedding-3-large',
     parseMethod: 'qa',

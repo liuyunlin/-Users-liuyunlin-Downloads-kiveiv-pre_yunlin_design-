@@ -44,7 +44,9 @@ export function SegmentationPage({
   onNavigateSettings,
   tabOptions = SEGMENTATION_TABS,
   showTabSelect = true,
-  useInlineTagActions = false
+  useInlineTagActions = false,
+  openResultDocId,
+  onOpenResultConsumed
 }) {
   const { activeKnowledgeBaseId, knowledgeBases, updateKnowledgeBase } = useKnowledgeBaseStore()
   const segmentationBaseId = activeKnowledgeBaseId || 'default'
@@ -93,7 +95,7 @@ export function SegmentationPage({
   const [searchDocs, setSearchDocs] = useState([])
   const [modalState, setModalState] = useState(null)
   const [editingChunk, setEditingChunk] = useState(null)
-  const [editDraft, setEditDraft] = useState({ title: '', content: '' })
+  const [editDraft, setEditDraft] = useState({ title: '', contentHTML: '' })
   const [vectorDocId, setVectorDocId] = useState(null)
   const [vectorViewEnabled, setVectorViewEnabled] = useState(false)
   const [vectorModalOpen, setVectorModalOpen] = useState(false)
@@ -115,7 +117,7 @@ export function SegmentationPage({
     setSearchDocs([])
     setModalState(null)
     setEditingChunk(null)
-    setEditDraft({ title: '', content: '' })
+    setEditDraft({ title: '', contentHTML: '' })
     setVectorDocId(null)
     setVectorViewEnabled(false)
     setVectorModalOpen(false)
@@ -126,6 +128,14 @@ export function SegmentationPage({
     setSemanticModel('')
     setLastSavedAt('')
   }, [segmentationBaseId])
+
+  useEffect(() => {
+    if (!openResultDocId) return
+    setResultDocId(openResultDocId)
+    setResultViewEnabled(true)
+    onTabChange?.('seg-results')
+    onOpenResultConsumed?.()
+  }, [openResultDocId, onOpenResultConsumed, onTabChange])
 
   useEffect(() => {
     const parsed = (parsedDocuments || []).filter((doc) => doc.status === '已解析')
@@ -539,10 +549,10 @@ export function SegmentationPage({
 
   const handleOpenEdit = (chunk, docId) => {
     setEditingChunk({ docId, chunkId: chunk.id })
-    setEditDraft({ title: chunk.title, content: chunk.content || '' })
+    setEditDraft({ title: chunk.title, contentHTML: chunk.contentHTML || chunk.content || '' })
   }
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = (payload) => {
     if (!editingChunk) return
     const { docId, chunkId } = editingChunk
     setChunksByDoc((prev) => {
@@ -551,8 +561,9 @@ export function SegmentationPage({
         chunk.id === chunkId
           ? {
               ...chunk,
-              title: editDraft.title,
-              content: editDraft.content,
+              title: payload.title,
+              content: payload.content,
+              contentHTML: payload.contentHTML,
               status: 1
             }
           : chunk
@@ -809,8 +820,8 @@ export function SegmentationPage({
 
       {editingChunk && (
         <EditChunkModal
-          draft={editDraft}
-          onChange={setEditDraft}
+          initialTitle={editDraft.title}
+          initialContentHTML={editDraft.contentHTML}
           onClose={() => setEditingChunk(null)}
           onSave={handleSaveEdit}
         />

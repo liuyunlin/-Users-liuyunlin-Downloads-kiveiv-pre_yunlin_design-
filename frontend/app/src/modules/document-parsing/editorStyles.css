@@ -6,7 +6,7 @@
 
 .dc-editor-content .ProseMirror {
   outline: none;
-  min-height: 360px;
+  min-height: 70vh;
 }
 
 .dc-editor-content-wrapper {

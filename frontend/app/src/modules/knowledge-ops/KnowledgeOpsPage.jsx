@@ -3,7 +3,7 @@ import { useKnowledgeBaseStore } from '../knowledge-base/KnowledgeBaseStore.jsx'
 import { SegmentationPage } from '../document-segmentation/components/SegmentationPage.jsx'
 import { SEGMENTATION_OPS_TABS } from '../document-segmentation/data/segmentationConstants.js'
 
-export function KnowledgeOpsPage({ onNavigateConfig, initialTab = 'seg-tags', onInitialTabConsumed }) {
+export function KnowledgeOpsPage({ onSetMainHeaderContent, onNavigateConfig, initialTab = 'seg-tags', onInitialTabConsumed }) {
   const { activeKnowledgeBaseId, knowledgeBases, filesByBase, setActiveKnowledgeBaseId } = useKnowledgeBaseStore()
   const [activeOpsTab, setActiveOpsTab] = useState(initialTab)
 
@@ -18,19 +18,46 @@ export function KnowledgeOpsPage({ onNavigateConfig, initialTab = 'seg-tags', on
     [knowledgeBases, activeKnowledgeBaseId]
   )
 
+  useEffect(() => {
+    if (!onSetMainHeaderContent) return undefined
+
+    if (!activeKnowledgeBase) {
+      onSetMainHeaderContent(
+        <div className="flex w-full flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-[var(--kiveiv-text)]">知识运营</p>
+          </div>
+          <p className="text-xs text-[var(--kiveiv-text-subtle)]">请选择一个工作空间继续</p>
+        </div>
+      )
+      return () => onSetMainHeaderContent(null)
+    }
+
+    onSetMainHeaderContent(
+      <div className="flex w-full flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-wide text-[var(--kiveiv-text-subtle)]">知识运营</p>
+          <p className="truncate text-base font-medium text-[var(--kiveiv-text)]">{activeKnowledgeBase.name}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setActiveKnowledgeBaseId('')}
+          className="kiveiv-btn-secondary h-10 px-3 text-xs"
+        >
+          返回知识库选择
+        </button>
+      </div>
+    )
+
+    return () => onSetMainHeaderContent(null)
+  }, [onSetMainHeaderContent, activeKnowledgeBase, setActiveKnowledgeBaseId])
+
   if (!activeKnowledgeBase) {
     return (
       <div className="page-shell">
         <section className="kiveiv-card p-6">
-          <div className="kiveiv-bento-header">
-            <div>
-              <h2 className="text-2xl font-semibold text-[var(--kiveiv-text)]">知识运营</h2>
-              <p className="kiveiv-gap-title-body text-sm kiveiv-muted">先进入知识库，再进行标签治理与语义检索。</p>
-            </div>
-            <p className="text-xs text-[var(--kiveiv-text-subtle)]">请选择一个工作空间继续</p>
-          </div>
           {knowledgeBases.length > 0 ? (
-            <div className="kiveiv-bento-grid mt-5">
+            <div className="kiveiv-bento-grid">
               {knowledgeBases.map((base) => {
                 const files = filesByBase?.[base.id] || []
                 const parsedCount = files.filter((file) => file.status === '已解析').length
@@ -62,7 +89,7 @@ export function KnowledgeOpsPage({ onNavigateConfig, initialTab = 'seg-tags', on
               })}
             </div>
           ) : (
-            <div className="kiveiv-bento-empty mt-5">
+            <div className="kiveiv-bento-empty">
               <p className="text-sm text-[var(--kiveiv-text-muted)]">暂无可用知识库，请先在知识库页创建。</p>
               <button type="button" onClick={() => onNavigateConfig?.('model-layout')} className="kiveiv-btn-secondary kiveiv-btn-sm">
                 前往配置
@@ -77,22 +104,6 @@ export function KnowledgeOpsPage({ onNavigateConfig, initialTab = 'seg-tags', on
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-h-0 flex-1 flex-col page-shell">
-        <div className="mb-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-[var(--kiveiv-text-subtle)]">知识运营</p>
-              <h2 className="text-2xl font-semibold text-[var(--kiveiv-text)]">{activeKnowledgeBase.name}</h2>
-              <p className="kiveiv-gap-title-note text-xs kiveiv-muted">标签管理与语义搜索已与切分流程解耦，减少流程打断。</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActiveKnowledgeBaseId('')}
-              className="kiveiv-btn-secondary kiveiv-btn-sm"
-            >
-              返回知识库选择
-            </button>
-          </div>
-        </div>
         <div className="mb-4 flex flex-wrap items-center gap-2">
           {SEGMENTATION_OPS_TABS.map((tab) => {
             const active = activeOpsTab === tab.id

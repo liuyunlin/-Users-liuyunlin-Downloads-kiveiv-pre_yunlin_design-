@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { BatchImportModal } from '../../shared/components/BatchImportModal.jsx'
 
 const PAGE_SIZE = 8
@@ -17,14 +17,8 @@ export function FileSystemPage({
   onCreateGraphImport,
   onUpdateFile,
   onDeleteDocuments,
-  onViewProgress,
-  onViewSegProgress,
-  onViewIndexProgress,
-  onJumpSegmentation,
-  onJumpIndexBuilding,
   onJumpTagManagement,
-  onEditDocument,
-  onViewSegResults
+  onModifyConfig,
 }) {
   const totalFiles = files.length
   const [query, setQuery] = useState('')
@@ -38,7 +32,10 @@ export function FileSystemPage({
   const [batchForm, setBatchForm] = useState({ parsePolicy: '', sourceType: '', enabled: '' })
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, ids: [] })
   const [page, setPage] = useState(1)
-  const tableRef = useRef(null)
+  const [hoveredId, setHoveredId] = useState(null)
+  const leftTbodyRef = useRef(null)
+  const midTbodyRef = useRef(null)
+  const rightTbodyRef = useRef(null)
 
   const tagKeys = useMemo(
     () => Array.from(new Set(files.flatMap((file) => (file.tags || []).map((tag) => tag.key)).filter(Boolean))),
@@ -71,40 +68,47 @@ export function FileSystemPage({
     })
   }, [filteredFiles])
 
-  useEffect(() => {
-    const table = tableRef.current
-    if (!table) return
+  useLayoutEffect(() => {
+    const leftBody = leftTbodyRef.current
+    const midBody = midTbodyRef.current
+    const rightBody = rightTbodyRef.current
+    if (!leftBody || !midBody || !rightBody) return
 
-    const updateStickyWidths = () => {
-      const headerRow = table.querySelector('thead tr')
-      if (!headerRow) return
-      const headerCells = headerRow.querySelectorAll('th')
-      if (!headerCells.length) return
+    const syncRowHeights = () => {
+      const leftRows = Array.from(leftBody.querySelectorAll('tr[data-rowid]'))
+      const midRows = Array.from(midBody.querySelectorAll('tr[data-rowid]'))
+      const rightRows = Array.from(rightBody.querySelectorAll('tr[data-rowid]'))
+      if (!leftRows.length || !midRows.length || !rightRows.length) return
 
-      const selectCell = headerCells[0]
-      const nameCell = headerCells[1]
-      const actionCell = headerCells[headerCells.length - 1]
-      if (!selectCell || !nameCell || !actionCell) return
+      for (const row of [...leftRows, ...midRows, ...rightRows]) row.style.height = ''
 
-      const selectWidth = Math.ceil(selectCell.getBoundingClientRect().width)
-      const nameWidth = Math.ceil(nameCell.getBoundingClientRect().width)
-      const actionWidth = Math.ceil(actionCell.getBoundingClientRect().width)
-
-      table.style.setProperty('--kb-col-select-w', `${selectWidth}px`)
-      table.style.setProperty('--kb-col-name-w', `${nameWidth}px`)
-      table.style.setProperty('--kb-col-action-w', `${actionWidth}px`)
+      const rowCount = Math.min(leftRows.length, midRows.length, rightRows.length)
+      for (let index = 0; index < rowCount; index += 1) {
+        const height = Math.max(
+          leftRows[index].getBoundingClientRect().height,
+          midRows[index].getBoundingClientRect().height,
+          rightRows[index].getBoundingClientRect().height
+        )
+        const heightPx = `${Math.ceil(height)}px`
+        leftRows[index].style.height = heightPx
+        midRows[index].style.height = heightPx
+        rightRows[index].style.height = heightPx
+      }
     }
 
-    updateStickyWidths()
-    const resizeObserver = new ResizeObserver(() => updateStickyWidths())
-    resizeObserver.observe(table)
-    window.addEventListener('resize', updateStickyWidths)
+    const raf = window.requestAnimationFrame(syncRowHeights)
+    const resizeObserver = new ResizeObserver(() => syncRowHeights())
+    resizeObserver.observe(leftBody)
+    resizeObserver.observe(midBody)
+    resizeObserver.observe(rightBody)
+    window.addEventListener('resize', syncRowHeights)
 
     return () => {
+      window.cancelAnimationFrame(raf)
       resizeObserver.disconnect()
-      window.removeEventListener('resize', updateStickyWidths)
+      window.removeEventListener('resize', syncRowHeights)
     }
-  }, [filteredFiles.length, paginatedFiles.length, query, formatFilter, tagFilter])
+  }, [paginatedFiles, query, formatFilter, tagFilter, selectedIds.size])
 
   const updateFile = (fileId, updater) => {
     const target = files.find((item) => item.id === fileId)
@@ -230,7 +234,7 @@ export function FileSystemPage({
     const ids = Array.from(selectedIds)
     if (!ids.length) return
     ids.forEach((id) => {
-      onUpdateFile?.(id, (prev) => {
+      onUpdateFile?.(id, () => {
         const patch = {}
         if (batchForm.parsePolicy) patch.parsePolicy = batchForm.parsePolicy
         if (batchForm.sourceType) patch.sourceType = batchForm.sourceType
@@ -326,168 +330,195 @@ export function FileSystemPage({
 
       <div className="bento-card w-full">
         <div className="bento-card-inner w-full">
-          <div className="w-full overflow-x-auto overflow-y-hidden rounded-[12px] border border-gray-100">
-            <table ref={tableRef} className="kiveiv-table kiveiv-table-fixed-edges">
-            <colgroup>
-              <col style={{ width: '56px' }} />
-              <col style={{ width: '230px' }} />
-              <col style={{ minWidth: '110px' }} />
-              <col style={{ minWidth: '110px' }} />
-              <col style={{ minWidth: '96px' }} />
-              <col style={{ minWidth: '260px' }} />
-              <col style={{ minWidth: '140px' }} />
-              <col style={{ minWidth: '140px' }} />
-              <col style={{ width: '260px' }} />
-            </colgroup>
-            <thead>
-              <tr>
-              <th className="kiveiv-sticky-header kiveiv-sticky-left-1 py-3 text-left">
-                <input type="checkbox" checked={allSelected} onChange={toggleSelectPage} />
-              </th>
-              <th className="kiveiv-sticky-header kiveiv-sticky-left-2 py-3 text-left">
-                文件名称 / ID
-              </th>
-              <th className="py-3 text-left">状态</th>
-              <th className="py-3 text-left">数据量</th>
-              <th className="py-3 text-left">文件格式</th>
-              <th className="py-3 text-left">文件标签</th>
-              <th className="py-3 text-left">上传时间</th>
-              <th className="py-3 text-left">更新时间</th>
-              <th className="kiveiv-sticky-header kiveiv-sticky-right-1 py-3 text-left">
-                操作
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginatedFiles.map((file) => {
-              const canSegment = file.status === '已解析'
-              const canIndex = file.segStatusKey === 'processed' || file.segStatusKey === 'vectorized'
-              const showSegProgress = file.segStatusKey === 'processing'
-              const showIndexProgress = file.indexStatusKey === 'building' && file.indexTask?.id
-              const segResultLabel = file.segStatusKey === 'error'
-                ? '切分失败'
-                : (file.segStatusKey === 'processed' || file.segStatusKey === 'vectorized')
-                  ? '切分成功'
-                  : '待切分'
-              return (
-                <tr key={file.id}>
-                  <td className="kiveiv-sticky-left-1 py-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(file.id)}
-                      onChange={() => toggleSelectRow(file.id)}
-                    />
-                  </td>
-                  <td className="kiveiv-sticky-left-2 kiveiv-table-title">
-                    <button type="button" onClick={() => onOpenDocument?.(file)} className="text-left hover:text-gray-700">
-                      <span className="block">{file.name}</span>
-                      <span className="mt-1 block text-[11px] font-normal text-[var(--kiveiv-text-subtle)]">ID: {file.id}</span>
-                    </button>
-                  </td>
-                  <td className="py-3">
-                    <span className={`kiveiv-chip ${file.segStatusKey === 'error' ? 'kiveiv-chip-danger' : ''}`}>
-                      {segResultLabel}
-                    </span>
-                  </td>
-                  <td className="py-3">{formatCharCount(file.charCount || estimateChars(file))} 字符</td>
-                  <td className="py-3">{file.type || '未知'}</td>
-                  <td className="py-3">
-                    <div className="flex max-w-[240px] flex-wrap items-center gap-1.5">
-                      {(file.tags || []).map((tag) => (
-                        <span
-                          key={`${file.id}-${tag.key}-${tag.value}`}
-                          className={`kiveiv-chip ${isTagMatched(tag, query, tagFilter) ? 'kiveiv-chip-accent' : ''}`}
-                        >
-                          {tag.key}:{tag.value}
-                          {isTagMatched(tag, query, tagFilter) && <em className="ml-1 not-italic">命中</em>}
-                          <button
-                            type="button"
-                            onClick={() => removeTag(file.id, tag)}
-                            className="ml-1 text-[11px] text-[var(--kiveiv-text-subtle)] hover:text-[var(--kiveiv-text)]"
-                            title="移除标签"
-                          >
-                            ×
+          <div className="kiveiv-split-edges-wrap w-full overflow-hidden rounded-[12px] border border-gray-100">
+            <div className="kiveiv-split-edges" onMouseLeave={() => setHoveredId(null)}>
+              <div className="kiveiv-split-edges-left" aria-label="固定列：选择与名称">
+                <table className="kiveiv-table kiveiv-split-edges-table">
+                  <colgroup>
+                    <col style={{ width: '56px' }} />
+                    <col style={{ width: '230px' }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th className="py-3 text-left">
+                        <input type="checkbox" checked={allSelected} onChange={toggleSelectPage} />
+                      </th>
+                      <th className="py-3 text-left">文件名称 / ID</th>
+                    </tr>
+                  </thead>
+                  <tbody ref={leftTbodyRef}>
+                    {paginatedFiles.map((file) => (
+                      <tr
+                        key={file.id}
+                        data-rowid={file.id}
+                        className={hoveredId === file.id ? 'kiveiv-row-hover' : ''}
+                        onMouseEnter={() => setHoveredId(file.id)}
+                      >
+                        <td className="py-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(file.id)}
+                            onChange={() => toggleSelectRow(file.id)}
+                          />
+                        </td>
+                        <td className="kiveiv-table-title">
+                          <button type="button" onClick={() => onOpenDocument?.(file)} className="w-full min-w-0 text-left hover:text-gray-700">
+                            <span className="kiveiv-ellipsis" title={file.name}>{file.name}</span>
+                            <span className="mt-1 block text-[11px] font-normal text-[var(--kiveiv-text-subtle)]">ID: {file.id}</span>
                           </button>
-                        </span>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => setTagModal({ open: true, fileId: file.id, key: tagKeys[0] || '文档类型', query: '' })}
-                        className="inline-flex h-6 items-center rounded-full border border-[var(--kiveiv-border)] px-2 text-xs text-[var(--kiveiv-text-muted)] hover:border-[var(--kiveiv-accent)] hover:text-[var(--kiveiv-accent)]"
-                      >
-                        + 添加标签
-                      </button>
-                    </div>
-                  </td>
-                  <td className="py-3">{file.uploadedAt || file.createdAt || file.updatedAt || '--'}</td>
-                  <td className="py-3">{file.updatedAt}</td>
-                  <td className="kiveiv-sticky-right-1 py-3 text-xs">
-                    <div className="flex flex-wrap items-center gap-3 text-gray-700">
-                      {file.status === '解析中' && (
-                        <button type="button" onClick={() => onViewProgress?.(file)} className="text-gray-900 hover:text-black">
-                          解析进度
-                        </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {paginatedFiles.length === 0 && (
+                      <tr data-rowid="__empty__">
+                        <td className="py-3" colSpan={2}>&nbsp;</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="kiveiv-split-edges-mid" aria-label="可滚动列：详情">
+                <div className="kiveiv-split-edges-mid-scroll">
+                  <table className="kiveiv-table kiveiv-split-edges-table kiveiv-split-edges-mid-table">
+                    <colgroup>
+                      <col style={{ minWidth: '110px' }} />
+                      <col style={{ minWidth: '110px' }} />
+                      <col style={{ minWidth: '96px' }} />
+                      <col style={{ minWidth: '260px' }} />
+                      <col style={{ minWidth: '140px' }} />
+                      <col style={{ minWidth: '140px' }} />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th className="py-3 text-left">状态</th>
+                        <th className="py-3 text-left">数据量</th>
+                        <th className="py-3 text-left">文件格式</th>
+                        <th className="py-3 text-left">文件标签</th>
+                        <th className="py-3 text-left">上传时间</th>
+                        <th className="py-3 text-left">更新时间</th>
+                      </tr>
+                    </thead>
+                    <tbody ref={midTbodyRef}>
+                      {paginatedFiles.map((file) => {
+                        const segResultLabel = file.segStatusKey === 'error'
+                          ? '切分失败'
+                          : (file.segStatusKey === 'processed' || file.segStatusKey === 'vectorized')
+                            ? '切分成功'
+                            : '待切分'
+                        return (
+                          <tr
+                            key={file.id}
+                            data-rowid={file.id}
+                            className={hoveredId === file.id ? 'kiveiv-row-hover' : ''}
+                            onMouseEnter={() => setHoveredId(file.id)}
+                          >
+                            <td className="py-3">
+                              <span className={`kiveiv-chip ${file.segStatusKey === 'error' ? 'kiveiv-chip-danger' : ''}`}>
+                                {segResultLabel}
+                              </span>
+                            </td>
+                            <td className="py-3">{formatCharCount(file.charCount || estimateChars(file))} 字符</td>
+                            <td className="py-3">{file.type || '未知'}</td>
+                            <td className="py-3">
+                              <div className="flex max-w-[240px] flex-wrap items-center gap-1.5">
+                                {(file.tags || []).map((tag) => (
+                                  <span
+                                    key={`${file.id}-${tag.key}-${tag.value}`}
+                                    className={`kiveiv-chip ${isTagMatched(tag, query, tagFilter) ? 'kiveiv-chip-accent' : ''}`}
+                                  >
+                                    {tag.key}:{tag.value}
+                                    {isTagMatched(tag, query, tagFilter) && <em className="ml-1 not-italic">命中</em>}
+                                    <button
+                                      type="button"
+                                      onClick={() => removeTag(file.id, tag)}
+                                      className="ml-1 text-[11px] text-[var(--kiveiv-text-subtle)] hover:text-[var(--kiveiv-text)]"
+                                      title="移除标签"
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                                <button
+                                  type="button"
+                                  onClick={() => setTagModal({ open: true, fileId: file.id, key: tagKeys[0] || '文档类型', query: '' })}
+                                  className="inline-flex h-6 items-center rounded-full border border-[var(--kiveiv-border)] px-2 text-xs text-[var(--kiveiv-text-muted)] hover:border-[var(--kiveiv-accent)] hover:text-[var(--kiveiv-accent)]"
+                                >
+                                  + 添加标签
+                                </button>
+                              </div>
+                            </td>
+                            <td className="py-3">{file.uploadedAt || file.createdAt || file.updatedAt || '--'}</td>
+                            <td className="py-3">{file.updatedAt}</td>
+                          </tr>
+                        )
+                      })}
+                      {paginatedFiles.length === 0 && (
+                        <tr data-rowid="__empty__">
+                          <td className="py-3" colSpan={6}>&nbsp;</td>
+                        </tr>
                       )}
-                      {showSegProgress && (
-                        <button type="button" onClick={() => onViewSegProgress?.(file)} className="text-gray-900 hover:text-black">
-                          切分进度
-                        </button>
-                      )}
-                      {showIndexProgress && (
-                        <button type="button" onClick={() => onViewIndexProgress?.(file.indexTask?.id)} className="text-gray-900 hover:text-black">
-                          索引进度
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => onEditDocument?.(file)}
-                        className={`text-gray-900 hover:text-black ${file.status === '已解析' ? '' : 'pointer-events-none text-gray-300'}`}
-                      >
-                        修改配置
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenDelete([file.id])}
-                        className="text-red-500 hover:text-red-600"
-                      >
-                        删除文档
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onViewSegResults?.(file)}
-                        className={`text-gray-900 hover:text-black ${file.segStatusKey !== 'not_processed' ? '' : 'pointer-events-none text-gray-300'}`}
-                      >
-                        切分结果
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onJumpSegmentation?.(file)}
-                        className={`text-gray-900 hover:text-black ${canSegment ? '' : 'pointer-events-none text-gray-300'}`}
-                      >
-                        去切分
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onJumpIndexBuilding?.(file)}
-                        className={`text-gray-900 hover:text-black ${canIndex ? '' : 'pointer-events-none text-gray-300'}`}
-                      >
-                        去索引
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-            {!paginatedFiles.length && (
-              <tr>
-                <td colSpan={9} className="py-16 text-center text-sm kiveiv-subtle">
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="kiveiv-split-edges-right" aria-label="固定列：操作">
+                <table className="kiveiv-table kiveiv-split-edges-table">
+                  <colgroup>
+                    <col style={{ width: '260px' }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th className="py-3 text-left">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody ref={rightTbodyRef}>
+                    {paginatedFiles.map((file) => {
+                      return (
+                        <tr
+                          key={file.id}
+                          data-rowid={file.id}
+                          className={hoveredId === file.id ? 'kiveiv-row-hover' : ''}
+                          onMouseEnter={() => setHoveredId(file.id)}
+                        >
+                          <td className="py-3 text-xs">
+                            <div className="flex flex-wrap items-center gap-3 text-gray-700">
+                              <button
+                                type="button"
+                                onClick={() => onModifyConfig?.(file)}
+                                className="text-gray-900 hover:text-black"
+                              >
+                                修改配置
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDelete([file.id])}
+                                className="text-red-500 hover:text-red-600"
+                              >
+                                删除文档
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {paginatedFiles.length === 0 && (
+                      <tr data-rowid="__empty__">
+                        <td className="py-3">&nbsp;</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {!paginatedFiles.length && (
+                <div className="kiveiv-split-edges-empty text-center text-sm kiveiv-subtle">
                   {filteredFiles.length ? '暂无数据' : '无匹配结果，请调整搜索条件'}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                </div>
+              )}
+            </div>
+          </div>
 
       <BatchImportModal
         open={batchImportOpen}

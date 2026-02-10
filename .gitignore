@@ -126,6 +126,8 @@ dist/
 **/dist/
 .vite/
 **/.vite/
+.npm-cache/
+**/.npm-cache/
 .env
 .env.*
 

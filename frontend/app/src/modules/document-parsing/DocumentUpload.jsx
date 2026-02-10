@@ -1,9 +1,9 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDocumentStore } from './documentStore.jsx'
 import { LinearProgress } from '../shared/components/LinearProgress.jsx'
 import { uploadDocument } from '../../services/documentApi.js'
 
-const ACCEPTED_TYPES = ['pdf', 'ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx']
+const ACCEPTED_TYPES = ['pdf', 'ppt', 'pptx', 'doc', 'docx', 'md', 'txt', 'xls', 'xlsx', 'jpg', 'jpeg', 'png']
 const MAX_SIZE = 200 * 1024 * 1024
 const UPLOAD_DURATION = 20_000
 
@@ -11,11 +11,41 @@ export function DocumentUpload({ onTriggerSuccess, onTriggerFail, onStartParse }
   const { documents, setDocuments, uploadQueue, setUploadQueue } = useDocumentStore()
   const [isDragging, setIsDragging] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [dropzoneState, setDropzoneState] = useState('idle')
   const inputRef = useRef(null)
   const [duplicateInfo, setDuplicateInfo] = useState(null)
   const [queueWarning, setQueueWarning] = useState(null)
+  const dropzoneTimerRef = useRef(null)
+  const prevQueueLenRef = useRef(uploadQueue.length)
 
   const formatSize = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+
+  useEffect(() => {
+    const prevLen = prevQueueLenRef.current
+    const nextLen = uploadQueue.length
+    prevQueueLenRef.current = nextLen
+
+    if (dropzoneTimerRef.current) {
+      clearTimeout(dropzoneTimerRef.current)
+      dropzoneTimerRef.current = null
+    }
+
+    if (nextLen > 0) {
+      setDropzoneState('uploading')
+      return
+    }
+
+    if (prevLen > 0 && nextLen === 0 && !errorMessage) {
+      setDropzoneState('success')
+      dropzoneTimerRef.current = setTimeout(() => {
+        setDropzoneState('idle')
+        dropzoneTimerRef.current = null
+      }, 1200)
+      return
+    }
+
+    setDropzoneState('idle')
+  }, [uploadQueue.length, errorMessage])
 
   const createDocumentRecord = (file, serverId) => ({
     id: serverId || `DOC-${Date.now()}`,
@@ -58,9 +88,10 @@ export function DocumentUpload({ onTriggerSuccess, onTriggerFail, onStartParse }
         }
         setDocuments((prev) => [...prev, createDocumentRecord(file, result.doc_id)])
         onTriggerSuccess?.()
-      } catch (_error) {
+      } catch (error) {
         setErrorMessage('上传失败，请稍后重试。')
         onTriggerFail?.()
+        void error
       }
     }
 
@@ -114,7 +145,7 @@ export function DocumentUpload({ onTriggerSuccess, onTriggerFail, onStartParse }
       inputRef.current.value = ''
     }
     if (hasInvalid) {
-      setErrorMessage('部分文件不符合要求，仅支持 200MB 以内的 PDF、DOCX、DOC、XLSX、XLS、PPT、PPTX 文件')
+      setErrorMessage('部分文件不符合要求，仅支持 200MB 以内的 PDF、DOCX、DOC、MD、TXT、XLSX、XLS、PPT、PPTX、JPG、PNG 文件')
       onTriggerFail?.()
     } else {
       setErrorMessage('')
@@ -183,11 +214,33 @@ export function DocumentUpload({ onTriggerSuccess, onTriggerFail, onStartParse }
           }`}
         >
           <div className="text-center">
-            <svg className="mx-auto h-12 w-12 kiveiv-subtle" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v12" />
-            </svg>
+            {dropzoneState === 'uploading' ? (
+              <span className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-full bg-blue-50 text-blue-500 shadow-sm">
+                <svg className="h-8 w-8 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle className="opacity-20" cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" />
+                  <path
+                    d="M21 12a9 9 0 00-9-9"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+            ) : dropzoneState === 'success' ? (
+              <span className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-full bg-blue-50 text-blue-600 shadow-sm">
+                <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M20 6L9 17l-5-5" />
+                </svg>
+              </span>
+            ) : (
+              <svg className="mx-auto h-12 w-12 kiveiv-subtle" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v12" />
+              </svg>
+            )}
             <div className="kiveiv-gap-paragraph text-sm kiveiv-muted">
-              <p className="font-semibold" style={{ color: 'var(--kiveiv-text)' }}>点击选择文件 或拖拽到此处</p>
+              <p className="font-semibold" style={{ color: 'var(--kiveiv-text)' }}>
+                {dropzoneState === 'uploading' ? '正在上传…' : dropzoneState === 'success' ? '上传完成' : '点击选择文件 或拖拽到此处'}
+              </p>
             </div>
             <p className="text-xs leading-5 kiveiv-subtle">支持 PDF、DOCX、DOC、XLSX、PPT、PPTX 格式</p>
           </div>
@@ -266,7 +319,7 @@ export function DocumentUpload({ onTriggerSuccess, onTriggerFail, onStartParse }
                 已上传 {documents.length} 个文档
               </p>
               <p className="mt-1 text-xs text-[var(--kiveiv-text-subtle)]">
-                {uploadQueue.length > 0 ? '上传完成后将自动进入解析' : '可继续上传，或直接进入解析'}
+                {uploadQueue.length > 0 ? '上传完成后可进入方案中心开始解析' : '可继续上传，或进入方案中心开始解析'}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -283,7 +336,7 @@ export function DocumentUpload({ onTriggerSuccess, onTriggerFail, onStartParse }
                 disabled={uploadQueue.length > 0}
                 className={`kiveiv-btn-primary h-9 px-3 text-xs ${uploadQueue.length > 0 ? 'kiveiv-btn-disabled' : ''}`}
               >
-                开始解析
+                开始解析（配置方案）
               </button>
             </div>
           </div>
